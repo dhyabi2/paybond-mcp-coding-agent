@@ -56,5 +56,6 @@ if (!settled) throw new Error("payment not verified");
 
 Keyless: it reads the settled block over a public Nano RPC and checks the amount — no private
 key is held, no gas, no facilitator. Verification is fail-closed (a node error or a short
-amount returns `false`). Tests (Node's built-in `node:test`, no network) run with `npm test`.
+amount returns `false`). Tests (Node's built-in `node:test`, no network) run against the
+compiled output: `npm run build`, then `npm test`.
 
