@@ -40,22 +40,34 @@ Local `paybond.policy.yaml` is yours to edit. Bundled preset: **custom**.
 
 ## Optional: feeless Nano (XNO) settlement for paid tools
 
-`src/nano.ts` is a small, optional, receive-only Nano (XNO) settlement verifier. Where the
-USD spend control settles cost in a flat currency, `verifyNanoPayment` lets an agent settle a
-paid tool call on-chain in feeless, sub-second XNO instead (or as well):
+`src/nano.ts` is a small, optional, receive-only Nano (XNO) settlement verifier. A Nano
+block has no memo, so a confirmed send proves only that an amount reached an account; the
+seller therefore binds each block to one issued order:
 
 ```ts
-import { verifyNanoPaymentXno } from "./nano.js";
+import { InMemoryNanoOrderStore, issueNanoOrder, verifyNanoPayment } from "./nano.js";
 
-const settled = await verifyNanoPaymentXno({
-  blockHash,        // the agent's settled Nano send block
-  minAmountXno: "0.1", // require at least 0.1 XNO
-});
+const store = new InMemoryNanoOrderStore(); // use a database-backed store in production
+
+// 402 step: issue an order; give the requester orderId, payTo and amountRaw.
+const order = await issueNanoOrder({ store, payTo: MY_NANO_ACCOUNT, priceXno: "0.1" });
+
+// Paid retry: the requester presents orderId AND the block hash it sent.
+const settled = await verifyNanoPayment({ store, orderId, blockHash });
 if (!settled) throw new Error("payment not verified");
 ```
 
-Keyless: it reads the settled block over a public Nano RPC and checks the amount — no private
-key is held, no gas, no facilitator. Verification is fail-closed (a node error or a short
-amount returns `false`). Tests (Node's built-in `node:test`, no network) run against the
-compiled output: `npm run build`, then `npm test`.
+- The order id is an opaque 128-bit secret; a block hash alone is never accepted.
+- The amount carries a random per-order tag that no other open order for the account
+  shares, and the block must be a confirmed send of exactly that amount to exactly that
+  account, made inside the order's issue-to-expiry window (the block's own time).
+- `blockHash -> orderId` is claimed once in the store: a hash cannot pay a second order,
+  and a paid order takes no second block. `InMemoryNanoOrderStore` is for tests and one
+  process; a seller that restarts or runs several workers implements `NanoOrderStore`
+  over a database with a UNIQUE index on the block hash and on the order id.
+- Node lookups time out (8 s default) and cap the response (64 KiB default); a plain-HTTP
+  RPC URL is refused unless it is loopback.
 
+Keyless: no private key is held, no gas, no facilitator. Verification is fail-closed.
+Tests (Node's built-in `node:test`, no network) run against the compiled output:
+`npm run build`, then `npm test`.
